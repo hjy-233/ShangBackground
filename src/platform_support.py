@@ -10,15 +10,18 @@ SPI_GETDESKWALLPAPER = 0x0073
 
 
 def run_osascript(script):
-    result = subprocess.run(
-        ["osascript", "-e", script],
-        text=True,
-        capture_output=True,
-        timeout=10,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "osascript 执行失败")
-    return result.stdout.strip()
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return ""
+        return result.stdout.strip()
+    except Exception:
+        return ""
 
 
 def get_screen_size(root=None):
@@ -51,10 +54,41 @@ def set_wallpaper_platform(path):
         ctypes.windll.user32.SystemParametersInfoW(20, 0, path, 3)
         return
     if IS_MACOS:
-        escaped = quote_applescript_text(os.path.abspath(path))
-        run_osascript(
-            f'tell application "System Events" to tell every desktop to set picture to POSIX file "{escaped}"'
-        )
+        abs_path = os.path.abspath(path)
+        
+        desktops_script = '''
+tell application "System Events"
+    set desktopIDs to {}
+    repeat with d in desktops
+        set end of desktopIDs to id of d
+    end repeat
+    return desktopIDs
+end tell
+'''
+        desktop_ids = run_osascript(desktops_script)
+        
+        if desktop_ids:
+            for desktop_id in desktop_ids.split(','):
+                desktop_id = desktop_id.strip()
+                if desktop_id:
+                    script = f'''
+tell application "System Events"
+    tell desktop id {desktop_id}
+        set picture to POSIX file "{abs_path}"
+    end tell
+end tell
+'''
+                    run_osascript(script)
+        else:
+            run_osascript(f'''
+tell application "System Events"
+    tell every desktop
+        set picture to POSIX file "{abs_path}"
+    end tell
+end tell
+''')
+        
+        time.sleep(0.2)
         return
     raise RuntimeError(f"暂不支持当前系统: {sys.platform}")
 
