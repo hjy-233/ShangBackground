@@ -56,6 +56,7 @@ struct ContentView: View {
     @State private var fitMode = "填充"
     @State private var shuffle = false
     @State private var currentMode = "幻灯片放映"
+    @State private var autoStart = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -333,6 +334,22 @@ struct ContentView: View {
 
                 Divider()
 
+                Group {
+                    Text("系统")
+                        .font(.headline)
+                    
+                    Toggle("开机启动", isOn: $autoStart)
+                        .onChange(of: autoStart) { newValue in
+                            if newValue {
+                                enableAutoStart()
+                            } else {
+                                disableAutoStart()
+                            }
+                        }
+                }
+
+                Divider()
+
                 HStack {
                     Button("刷新配置") {
                         refreshConfig()
@@ -388,6 +405,50 @@ struct ContentView: View {
                 currentMode = cfg.mode
             }
         }
+        autoStart = checkAutoStart()
+    }
+
+    func checkAutoStart() -> Bool {
+        let plistPath = NSHomeDirectory() + "/Library/LaunchAgents/org.dcstudio.ShangBackground.plist"
+        return FileManager.default.fileExists(atPath: plistPath)
+    }
+
+    func enableAutoStart() {
+        let appPath = Bundle.main.bundlePath
+        let plistContent = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Label</key>
+            <string>org.dcstudio.ShangBackground</string>
+            <key>ProgramArguments</key>
+            <array>
+                <string>\(appPath)</string>
+            </array>
+            <key>RunAtLoad</key>
+            <true/>
+        </dict>
+        </plist>
+        """
+        let plistPath = NSHomeDirectory() + "/Library/LaunchAgents"
+        try? FileManager.default.createDirectory(atPath: plistPath, withIntermediateDirectories: true)
+        let fullPath = plistPath + "/org.dcstudio.ShangBackground.plist"
+        try? plistContent.write(toFile: fullPath, atomically: true, encoding: .utf8)
+        
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = ["load", fullPath]
+        try? process.run()
+    }
+
+    func disableAutoStart() {
+        let plistPath = NSHomeDirectory() + "/Library/LaunchAgents/org.dcstudio.ShangBackground.plist"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = ["unload", plistPath]
+        try? process.run()
+        try? FileManager.default.removeItem(atPath: plistPath)
     }
 }
 
