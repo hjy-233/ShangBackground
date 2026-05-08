@@ -4,4 +4,5 @@ src/random.json
 src/wallpaper_debug.log
 src/diy/
 .DS_Store
-ShangBackground/
+ShangBackground/ShangBackground.xcodeproj/xcuserdata/
+ShangBackground/ShangBackground.xcodeproj/project.xcworkspace/xcuserdata/
