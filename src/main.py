@@ -5484,9 +5484,9 @@ def main():
                 preview_gradient()
                 apply_gradient()
 
-    solid_color_var.trace("w", on_solid_color_change)
-    color1_var.trace("w", on_gradient_color1_change)
-    color2_var.trace("w", on_gradient_color2_change)
+    solid_color_var.trace_add("write", on_solid_color_change)
+    color1_var.trace_add("write", on_gradient_color1_change)
+    color2_var.trace_add("write", on_gradient_color2_change)
     msg_hwnd = create_message_window()
     if msg_hwnd:
         msg_thread = threading.Thread(target=message_loop, daemon=True)
@@ -6688,5 +6688,170 @@ def main():
     force_exit()
 
 
+def get_screen_size_cli():
+    if IS_MACOS:
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", "tell application \"System Events\" to get size of first window of process \"Finder\""],
+                capture_output=True, text=True, timeout=2
+            )
+            if result.returncode != 0:
+                raise Exception("Failed")
+        except:
+            pass
+        try:
+            result = subprocess.run(
+                ["system_profiler", "SPDisplaysDataType"],
+                capture_output=True, text=True, timeout=5
+            )
+            import re
+            match = re.search(r"Resolution:\s*(\d+)\s*x\s*(\d+)", result.stdout)
+            if match:
+                return int(match.group(1)), int(match.group(2))
+        except:
+            pass
+        return 2560, 1440
+    return 1920, 1080
+
+def cli_set_solid(color):
+    screen_width, screen_height = get_screen_size_cli()
+    img = Image.new("RGB", (screen_width, screen_height), color)
+    diy_dir = os.path.join(BASE_DIR, "diy")
+    os.makedirs(diy_dir, exist_ok=True)
+    timestamp = int(time.time())
+    bmp_path = os.path.join(diy_dir, f"solid_{timestamp}.png")
+    img.save(bmp_path, "PNG")
+    if os.path.exists(bmp_path):
+        set_wallpaper(bmp_path, "纯色壁纸", force=True)
+        config["solid_color"] = color
+        save_config()
+
+def cli_set_gradient(color1, color2, angle):
+    screen_width, screen_height = get_screen_size_cli()
+    img = Image.new("RGB", (screen_width, screen_height))
+    draw = ImageDraw.Draw(img)
+    for y in range(screen_height):
+        t = y / screen_height
+        r = int(int(color1[1:3], 16) * (1-t) + int(color2[1:3], 16) * t)
+        g = int(int(color1[3:5], 16) * (1-t) + int(color2[3:5], 16) * t)
+        b = int(int(color1[5:7], 16) * (1-t) + int(color2[5:7], 16) * t)
+        draw.line([(0, y), (screen_width, y)], fill=(r, g, b))
+    diy_dir = os.path.join(BASE_DIR, "diy")
+    os.makedirs(diy_dir, exist_ok=True)
+    timestamp = int(time.time())
+    png_path = os.path.join(diy_dir, f"gradient_{timestamp}.png")
+    img.save(png_path, "PNG")
+    if os.path.exists(png_path):
+        set_wallpaper(png_path, "渐变壁纸", force=True)
+        config["gradient_color1"] = color1
+        config["gradient_color2"] = color2
+        config["gradient_angle"] = angle
+        save_config()
+
+def cli_main():
+    parser = argparse.ArgumentParser(description="上一个桌面背景 - CLI")
+    parser.add_argument("--action", type=str, required=True, 
+        help="操作: set_wallpaper, random, next, previous, get_config, set_config, set_solid, set_gradient, start_slideshow, stop_slideshow, set_folder, set_interval, set_fit_mode, set_mode")
+    parser.add_argument("--path", type=str, help="壁纸路径 (set_wallpaper 用)")
+    parser.add_argument("--color", type=str, help="纯色 hex (set_solid 用)")
+    parser.add_argument("--color1", type=str, help="渐变色1 hex (set_gradient 用)")
+    parser.add_argument("--color2", type=str, help="渐变色2 hex (set_gradient 用)")
+    parser.add_argument("--angle", type=int, default=60, help="渐变角度 (set_gradient 用)")
+    parser.add_argument("--folder", type=str, help="幻灯片文件夹路径 (set_folder 用)")
+    parser.add_argument("--interval", type=int, help="幻灯片切换间隔秒数 (set_interval 用)")
+    parser.add_argument("--fit", type=str, help="适应模式: 填充, 适应, 拉伸, 居中, 拉伸, 平铺 (set_fit_mode 用)")
+    parser.add_argument("--mode", type=str, help="模式: 幻灯片放映, 单一图片, 纯色, 渐变 (set_mode 用)")
+    parser.add_argument("--shuffle", type=str, help="随机: true/false")
+    parser.add_argument("--key", type=str, help="配置键 (set_config 用)")
+    parser.add_argument("--value", type=str, help="配置值 (set_config 用)")
+    
+    args = parser.parse_args()
+    
+    load_config()
+    
+    if args.action == "set_wallpaper":
+        if not args.path:
+            print("Error: --path required")
+            return
+        result = set_wallpaper(args.path, operation_name="CLI")
+        print(json.dumps({"success": True, "path": args.path}))
+    elif args.action == "random":
+        result = random_wallpaper()
+        print(json.dumps({"success": True}))
+    elif args.action == "next":
+        result = next_wallpaper()
+        print(json.dumps({"success": True}))
+    elif args.action == "previous":
+        result = previous_wallpaper()
+        print(json.dumps({"success": True}))
+    elif args.action == "get_config":
+        print(json.dumps(config, indent=2, ensure_ascii=False))
+    elif args.action == "set_config":
+        if not args.key:
+            print("Error: --key required")
+            return
+        if args.value is None:
+            print("Error: --value required")
+            return
+        config[args.key] = args.value
+        save_config()
+        print(json.dumps({"success": True, "key": args.key, "value": args.value}))
+    elif args.action == "set_folder":
+        if not args.folder:
+            print("Error: --folder required")
+            return
+        config["slide_folder"] = args.folder
+        save_config()
+        print(json.dumps({"success": True, "folder": args.folder}))
+    elif args.action == "set_interval":
+        if not args.interval:
+            print("Error: --interval required")
+            return
+        config["slide_seconds"] = args.interval
+        save_config()
+        print(json.dumps({"success": True, "interval": args.interval}))
+    elif args.action == "set_fit_mode":
+        if not args.fit:
+            print("Error: --fit required")
+            return
+        config["fit_mode"] = args.fit
+        save_config()
+        print(json.dumps({"success": True, "fit_mode": args.fit}))
+    elif args.action == "set_mode":
+        if not args.mode:
+            print("Error: --mode required")
+            return
+        config["mode"] = args.mode
+        save_config()
+        print(json.dumps({"success": True, "mode": args.mode}))
+    elif args.action == "set_shuffle":
+        config["shuffle"] = (args.shuffle.lower() == "true")
+        save_config()
+        print(json.dumps({"success": True, "shuffle": config["shuffle"]}))
+    elif args.action == "set_solid":
+        if not args.color:
+            print("Error: --color required")
+            return
+        cli_set_solid(args.color)
+        print(json.dumps({"success": True, "color": args.color}))
+    elif args.action == "set_gradient":
+        if not args.color1 or not args.color2:
+            print("Error: --color1 and --color2 required")
+            return
+        cli_set_gradient(args.color1, args.color2, args.angle)
+        print(json.dumps({"success": True, "color1": args.color1, "color2": args.color2, "angle": args.angle}))
+    elif args.action == "start_slideshow":
+        start_slideshow()
+        print(json.dumps({"success": True}))
+    elif args.action == "stop_slideshow":
+        stop_slideshow()
+        print(json.dumps({"success": True}))
+    else:
+        print(f"Unknown action: {args.action}")
+        return
+
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1:
+        cli_main()
+    else:
+        main()
